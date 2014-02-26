@@ -1,12 +1,19 @@
-import os
+import os, sys
 from flask import Flask, g, request, session, url_for, redirect, flash, render_template
 from flask.ext.github import GitHub
 
 app = Flask(__name__)
-app.config['GITHUB_CLIENT_ID'] = os.environ['GITHUB_CLIENT_ID']
-app.config['GITHUB_CLIENT_SECRET'] = os.environ['GITHUB_CLIENT_SECRET']
+try:
+	app.config['GITHUB_CLIENT_ID'] = os.environ['GITHUB_CLIENT_ID']
+	app.config['GITHUB_CLIENT_SECRET'] = os.environ['GITHUB_CLIENT_SECRET']
+	app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
+
+except KeyError, ex:
+	app.config['GITHUB_CLIENT_ID'] = 'FAKE-CLIENT-ID'
+	app.config['GITHUB_CLIENT_SECRET'] = 'FAKE-CLIENT-SECRET'
+	print >>sys.stderr, "Missing config: %s (Please fix)" % ex
+
 app.config['GITHUB_CALLBACK_URL'] = 'http://' + os.environ.get('OPENSHIFT_APP_DNS', 'localhost:5000') + '/login/callback'
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
 
 github = GitHub(app)
 
@@ -71,9 +78,6 @@ def add():
 
 def send_pull_request(form_data):
 	flash("Error", "error")
-
-## pull-request ##########
-
 
 ##########################
 if __name__ == "__main__":
