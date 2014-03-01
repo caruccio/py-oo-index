@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import os, sys
+import json
 from flask import Flask, g, request, session, url_for, redirect, flash, render_template
-from flask.ext.github import GitHub
+from flask.ext.github import GitHub as AuthGitHub
+import github as PyGitHub
+from collections import OrderedDict
+import requests
 
 app = Flask(__name__)
 try:
 	app.config['GITHUB_CLIENT_ID'] = os.environ['GITHUB_CLIENT_ID']
 	app.config['GITHUB_CLIENT_SECRET'] = os.environ['GITHUB_CLIENT_SECRET']
 	app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
-
 except KeyError, ex:
 	app.config['GITHUB_CLIENT_ID'] = 'FAKE-CLIENT-ID'
 	app.config['GITHUB_CLIENT_SECRET'] = 'FAKE-CLIENT-SECRET'
@@ -17,7 +20,12 @@ except KeyError, ex:
 
 app.config['GITHUB_CALLBACK_URL'] = 'http://' + os.environ.get('OPENSHIFT_APP_DNS', 'localhost:5000') + '/login/callback'
 
-github = GitHub(app)
+# set it to point to your own oo-index public repo
+app.config['OO_INDEX_GITHUB_USERNAME'] = os.environ.get('OO_INDEX_GITHUB_USERNAME', 'openshift')
+app.config['OO_INDEX_GITHUB_REPONAME'] = os.environ.get('OO_INDEX_GITHUB_REPONAME', 'oo-index')
+app.config['OO_INDEX_QUICKSTART_JSON'] = os.environ.get('OO_INDEX_QUICKSTART_JSON', 'quickstart.json')
+
+auth = AuthGitHub(app)
 
 ## authentication ##########
 
@@ -30,20 +38,20 @@ def before_request():
 
 @app.route('/login')
 def login():
-	return github.authorize()
+	return auth.authorize()
 
 @app.route('/login/callback')
-@github.authorized_handler
+@auth.authorized_handler
 def authorized(token):
 	next_url = request.args.get('next') or url_for('index')
 	if token is None:
 		return redirect(next_url)
 
 	session['token'] = token
-	session['user']  = github.get('user')['login']
+	session['user']  = auth.get('user')['login']
 	return redirect(next_url)
 
-@github.access_token_getter
+@auth.access_token_getter
 def token_getter():
 	return session.get('token')
 
@@ -64,6 +72,7 @@ def add():
 	if not g.user:
 		return redirect(url_for('login'))
 
+	pr = None
 	form_data = {}
 	if request.method == 'POST':
 		try:
@@ -71,15 +80,155 @@ def add():
 			form_data['github-username'] = request.form['github-username']
 			form_data['github-repository'] = request.form['github-repository']
 		except KeyError, ex:
-			flash('Missing field: %s' % ex)
+			flash('Missing field: %s' % ex, 'error')
 			return render_template('add.html') #, **form_data)
 		form_data['alternate-name'] = request.form.get('alternate-name')
 		form_data['cartridges'] = request.form.get('cartridges')
-		send_pull_request(form_data)
-	return render_template('add.html') #, **form_data)
+
+		try:
+			pr = send_pull_request(form_data)
+			flash('Pull Request created', 'info')
+		except PyGitHub.GithubException, ex:
+			flash(ex.data.get('message', 'Unknown error.'), 'error')
+		except Exception, ex:
+			flash('%s: %s' % (ex.__class__, ex), 'error')
+
+	return render_template('add.html', pr=pr) #, **form_data)
+
+def _read_github_file(username, reponame, filename):
+	'''Fork repo and read content of `filename`.
+	'''
+	print 'Loading file content from %s/%s/%s' % (g.user, reponame, filename)
+	gh = PyGitHub.Github(session['token'])
+	user = gh.get_user()
+
+	# Get user's oo-index repo, create if not exists
+	try:
+		repo = user.get_repo(reponame)
+	except PyGitHub.UnknownObjectException:
+		upstream = '%s/%s' % (username, reponame)
+		print '  Forking project %s' % upstream
+		user.create_fork(gh.get_repo(upstream))
+		repo = None
+
+		for i in range(10):
+			try:
+				repo = user.get_repo(reponame)
+				break
+			except PyGitHub.GithubException:
+				print '  retry %i...' % i
+				time.sleep(2)
+
+		if not repo:
+			flash('Timeout creating repository. Please try again later.', 'error')
+			raise Exception
+
+	head = repo.get_commit('HEAD')
+	tree = repo.get_git_tree(head.sha)
+	blob = filter(lambda t: t.path == filename, tree.tree)[0]
+	return repo, head, tree, requests.get(blob.url, headers={'Accept': 'application/vnd.github.v3.raw+json'}).json()
+
+def _filter_repo_fields(repo):
+	fields = [
+		'description',
+		'forks',
+		'updated_at',
+		'type',
+		'owner',
+		'id',
+		'size',
+		'watchers',
+		'name',
+		'language',
+		'git_repo_url',
+		'created_at',
+		'default_app_name',
+		'owner_type',
+		'stargazers'
+	]
+
+	r = OrderedDict([ (k,v) for k,v in repo.raw_data.items() if k in fields ])
+	r['stargazers'] = repo.stargazers_count
+	r['owner_type'] = repo.owner.type
+	r['owner'] = repo.owner.html_url
+	return r
+
+def _get_repo_for(username, reponame, token=None):
+	if token:
+		gh = PyGitHub.Github(token)
+	else:
+		gh = PyGitHub.Github()
+	return gh.get_repo(username + '/' + reponame)
+
+def _read_quickstart_repo(username, reponame):
+	print 'Reading quickstart repo metadata %s/%s' % (username, reponame)
+	return _filter_repo_fields(_get_repo_for(username, reponame))
 
 def send_pull_request(form_data):
-	flash("Error", "error")
+	# read metadata of new quickstart repo
+	qs_u = form_data['github-username']
+	qs_r = form_data['github-repository']
+	qs_n = form_data['alternate-name'] or qs_r
+	qs_c = form_data['cartridges'] or []
+	qs_t = form_data['type'] or []
+	try:
+		qs = _read_quickstart_repo(qs_u, qs_r)
+		qs['alternate_name'] = qs_n
+		qs['cartridges'] = qs_c
+		qs['type'] = qs_t
+	except PyGitHub.UnknownObjectException:
+		raise Exception("Username or repository not found: %s/%s" % (qs_u, qs_r))
+
+	# read content of original quickstar.json
+	# fork repo if needed
+	u = app.config['OO_INDEX_GITHUB_USERNAME']
+	r = app.config['OO_INDEX_GITHUB_REPONAME']
+	q = app.config['OO_INDEX_QUICKSTART_JSON']
+	repo, head, tree, quickstart = _read_github_file(u, r, q)
+
+	# add quickstart to quickstart.json
+	quickstart.append(qs)
+
+	# create new blob with updated quickstart.json
+	print "Creating blob...",; sys.stdout.flush()
+	new_blob = repo.create_git_blob(json.dumps(quickstart, indent=3, encoding='utf-8'), 'utf-8')
+
+	# create tree with new blob
+	element = None
+	for e in tree.tree:
+		if e.path == q:
+			element = PyGitHub.InputGitTreeElement(path=e.path, mode=e.mode, type=e.type, sha=new_blob.sha)
+
+	if not element:
+		flash("File not found: %s/%s/%s" % (u, r, q), "error")
+		return
+
+	print "Creating tree...",; sys.stdout.flush()
+	new_tree = repo.create_git_tree([ element ], tree)
+
+	# create commit for new tree
+	print "Creating commit...",; sys.stdout.flush()
+	message = 'Quickstart add request: %s/%s' % (qs_u, qs_r)
+	new_commit = repo.create_git_commit(message, new_tree, [ repo.get_git_commit(head.sha) ])
+
+	# create new branch for new commit
+	print "Creating branch...",; sys.stdout.flush()
+	try:
+		new_branch = repo.create_git_ref('refs/heads/%s-%s' % (qs_u, qs_r), new_commit.sha)
+	except PyGitHub.UnknownObjectException:
+		raise Exception("Username or repository not found: %s/%s" % (qs_u, qs_r))
+
+	# and finally, we send our pull request
+	print "Creating pull request...",; sys.stdout.flush()
+	upstream = _get_repo_for(u, r, session['token'])
+	pr_params = {
+		'title': message,
+		'body': 'Automatically generated PR for oo-index',
+		'base': 'master',
+		'head': '%s:%s-%s' % (g.user, qs_u, qs_r),
+	}
+	pr = upstream.create_pull(**pr_params)
+	return pr
 
 ##########################
 if __name__ == "__main__":

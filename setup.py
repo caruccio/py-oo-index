@@ -9,5 +9,6 @@ setup(name='YourAppName',
       install_requires=[
          'Flask==0.10.1',
          'Github-Flask==0.3.4',
+         'PyGithub==1.23.0',
       ],
      )

@@ -789,3 +789,21 @@ disabled look for disabled choices in the results dropdown
       background-position: 100% -21px !important;
   }
 }
+
+.flash-error {
+    background-color: #e32;
+    color: #fff;
+    padding: 10px;
+    border-radius: 6px;
+    width: 600px;
+    font-size: large;
+}
+
+.flash-info {
+    background-color: #2c0;
+    color: #fff;
+    padding: 10px;
+    border-radius: 6px;
+    width: 600px;
+    font-size: large;
+}
