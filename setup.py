@@ -7,6 +7,7 @@ setup(name='YourAppName',
       author_email='example@example.com',
       url='http://www.python.org/sigs/distutils-sig/',
       install_requires=[
+         'requests==2.3.0',
          'Flask==0.10.1',
          'Github-Flask==0.3.4',
          'PyGithub==1.23.0',
