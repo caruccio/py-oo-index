@@ -18,7 +18,10 @@ except KeyError, ex:
 	app.config['GITHUB_CLIENT_SECRET'] = 'FAKE-CLIENT-SECRET'
 	print >>sys.stderr, "Missing config: %s (Please fix)" % ex
 
-app.config['GITHUB_CALLBACK_URL'] = 'http://' + os.environ.get('OPENSHIFT_APP_DNS', 'localhost:5000') + '/login/callback'
+try:
+	app.config['GITHUB_CALLBACK_URL'] = 'https://' + os.environ['OPENSHIFT_APP_DNS'] + '/login/callback'
+except KeyError:
+	app.config['GITHUB_CALLBACK_URL'] = 'http://localhost:5000' + '/login/callback'
 
 # set it to point to your own oo-index public repo
 app.config['OO_INDEX_GITHUB_USERNAME'] = os.environ.get('OO_INDEX_GITHUB_USERNAME', 'openshift')
