@@ -8,7 +8,13 @@ import github as PyGitHub
 from collections import OrderedDict
 import requests
 
+class OOIndexError(Exception):
+	'''OO-Index specific errors
+	'''
+
 app = Flask(__name__)
+app.debug = True
+
 try:
 	app.config['GITHUB_CLIENT_ID'] = os.environ['GITHUB_CLIENT_ID']
 	app.config['GITHUB_CLIENT_SECRET'] = os.environ['GITHUB_CLIENT_SECRET']
@@ -91,6 +97,8 @@ def add():
 		try:
 			pr = send_pull_request(form_data)
 			flash('Pull Request created', 'info')
+		except OOIndexError, ex:
+			flash(str(ex), 'error')
 		except PyGitHub.GithubException, ex:
 			flash(ex.data.get('message', 'Unknown error.'), 'error')
 		except Exception, ex:
@@ -180,7 +188,7 @@ def send_pull_request(form_data):
 		qs['cartridges'] = qs_c
 		qs['type'] = qs_t
 	except PyGitHub.UnknownObjectException:
-		raise Exception("Username or repository not found: %s/%s" % (qs_u, qs_r))
+		raise OOIndexError("Username or repository not found: %s/%s" % (qs_u, qs_r))
 
 	# read content of original quickstar.json
 	# fork repo if needed
@@ -219,7 +227,7 @@ def send_pull_request(form_data):
 	try:
 		new_branch = repo.create_git_ref('refs/heads/%s-%s' % (qs_u, qs_r), new_commit.sha)
 	except PyGitHub.UnknownObjectException:
-		raise Exception("Username or repository not found: %s/%s" % (qs_u, qs_r))
+		raise OOIndexError("Username or repository not found: %s/%s" % (qs_u, qs_r))
 
 	# and finally, we send our pull request
 	print "Creating pull request...",; sys.stdout.flush()
