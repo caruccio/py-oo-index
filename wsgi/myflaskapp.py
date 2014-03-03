@@ -131,13 +131,26 @@ def _read_github_file(username, reponame, filename):
 				time.sleep(2)
 
 		if not repo:
-			flash('Timeout creating repository. Please try again later.', 'error')
-			raise Exception
+			msg = 'Timeout creating repository. Please try again later.'
+			flash(msg, 'error')
+			raise OOIndexError(msg)
+
+	def walk_tree(tree, *path):
+		for el in tree.tree:
+			if el.type == 'tree':
+				if el.path == path[0]:
+					return walk_tree(repo.get_git_tree(el.sha), *path[1:])
+			elif el.type == 'blob':
+				if len(path) == 1 and el.path == path[0]:
+					return el
+		raise OOIndexError('Invalid path "%s". Please contact support' % filename)
 
 	head = repo.get_commit('HEAD')
 	tree = repo.get_git_tree(head.sha)
-	blob = filter(lambda t: t.path == filename, tree.tree)[0]
-	return repo, head, tree, requests.get(blob.url, headers={'Accept': 'application/vnd.github.v3.raw+json'}).json()
+	blob = walk_tree(tree, *filename.strip('/').split('/'))
+	content = requests.get(blob.url, headers={'Accept': 'application/vnd.github.v3.raw+json'}).json()
+
+	return repo, head, tree, content
 
 def _filter_repo_fields(repo):
 	fields = [
