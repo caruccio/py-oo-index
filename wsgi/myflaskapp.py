@@ -106,6 +106,16 @@ def add():
 
 	return render_template('add.html', pr=pr) #, **form_data)
 
+def _walk_tree(repo, tree, *path):
+	for el in tree.tree:
+		if el.type == 'tree':
+			if el.path == path[0]:
+				return _walk_tree(repo, repo.get_git_tree(el.sha), *path[1:])
+		elif el.type == 'blob':
+			if len(path) == 1 and el.path == path[0]:
+				return el
+	raise OOIndexError('Invalid path "%s". Please contact support' % '/'.join(path))
+
 def _read_github_file(username, reponame, filename):
 	'''Fork repo and read content of `filename`.
 	'''
@@ -135,19 +145,9 @@ def _read_github_file(username, reponame, filename):
 			flash(msg, 'error')
 			raise OOIndexError(msg)
 
-	def walk_tree(tree, *path):
-		for el in tree.tree:
-			if el.type == 'tree':
-				if el.path == path[0]:
-					return walk_tree(repo.get_git_tree(el.sha), *path[1:])
-			elif el.type == 'blob':
-				if len(path) == 1 and el.path == path[0]:
-					return el
-		raise OOIndexError('Invalid path "%s". Please contact support' % filename)
-
 	head = repo.get_commit('HEAD')
 	tree = repo.get_git_tree(head.sha)
-	blob = walk_tree(tree, *filename.strip('/').split('/'))
+	blob = _walk_tree(repo, tree, *filename.strip('/').split('/'))
 	content = requests.get(blob.url, headers={'Accept': 'application/vnd.github.v3.raw+json'}).json()
 
 	return repo, head, tree, content
@@ -218,7 +218,7 @@ def send_pull_request(form_data):
 	new_blob = repo.create_git_blob(json.dumps(quickstart, indent=3, encoding='utf-8'), 'utf-8')
 
 	# create tree with new blob
-	element = walk_tree(tree, *q.strip('/').split('/'))
+	element = _walk_tree(repo, tree, *q.strip('/').split('/'))
 	element = PyGitHub.InputGitTreeElement(path=element.path, mode=element.mode, type=element.type, sha=new_blob.sha)
 
 	if not element:
