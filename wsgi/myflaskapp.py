@@ -47,7 +47,7 @@ def before_request():
 
 @app.route('/login')
 def login():
-	return auth.authorize()
+	return auth.authorize(scope='public_repo')
 
 @app.route('/login/callback')
 @auth.authorized_handler
@@ -218,10 +218,8 @@ def send_pull_request(form_data):
 	new_blob = repo.create_git_blob(json.dumps(quickstart, indent=3, encoding='utf-8'), 'utf-8')
 
 	# create tree with new blob
-	element = None
-	for e in tree.tree:
-		if e.path == q:
-			element = PyGitHub.InputGitTreeElement(path=e.path, mode=e.mode, type=e.type, sha=new_blob.sha)
+	element = walk_tree(tree, *q.strip('/').split('/'))
+	element = PyGitHub.InputGitTreeElement(path=element.path, mode=element.mode, type=element.type, sha=new_blob.sha)
 
 	if not element:
 		flash("File not found: %s/%s/%s" % (u, r, q), "error")
