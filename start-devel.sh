@@ -6,12 +6,12 @@
 
 export GITHUB_CLIENT_ID=$1
 export GITHUB_CLIENT_SECRET=$2
-export OO_INDEX_GITHUB_USERNAME=openshift
-export OO_INDEX_GITHUB_REPONAME=oo-index
-export OO_INDEX_QUICKSTART_JSON=quickstart.json
+export OO_INDEX_GITHUB_USERNAME=${3:-openshift}
+export OO_INDEX_GITHUB_REPONAME=${4:-oo-index}
+export OO_INDEX_QUICKSTART_JSON=${5:-quickstart.json}
 
 if [ -z "$GITHUB_CLIENT_ID" -o -z "$GITHUB_CLIENT_SECRET" ]; then
-	echo "Fill in your github credentials and try again."
+	echo "Usage: $0 GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET [OO_INDEX_GITHUB_USERNAME [OO_INDEX_GITHUB_REPONAME [OO_INDEX_QUICKSTART_JSON]]]"
 	exit 1
 fi
 
