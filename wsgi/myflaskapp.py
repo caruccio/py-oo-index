@@ -227,9 +227,9 @@ def send_pull_request(form_data):
 		flash("File not found: %s/%s/%s" % (u, r, q), "error")
 		return
 
-	element_tree = _get_tree_element(repo, tree, *q.strip('/').split('/')[:-1])
+	base_tree = _get_tree_element(repo, tree, *q.strip('/').split('/')[:-1])
 	print "Creating tree...",; sys.stdout.flush()
-	new_tree = repo.create_git_tree([ element ], element_tree)
+	new_tree = repo.create_git_tree([ element ], repo.get_git_tree(base_tree.sha))
 
 	# create commit for new tree
 	print "Creating commit...",; sys.stdout.flush()
