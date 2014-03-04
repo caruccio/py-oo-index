@@ -32,7 +32,7 @@ except KeyError:
 # set it to point to your own oo-index public repo
 app.config['OO_INDEX_GITHUB_USERNAME'] = os.environ.get('OO_INDEX_GITHUB_USERNAME', 'openshift')
 app.config['OO_INDEX_GITHUB_REPONAME'] = os.environ.get('OO_INDEX_GITHUB_REPONAME', 'oo-index')
-app.config['OO_INDEX_QUICKSTART_JSON'] = os.environ.get('OO_INDEX_QUICKSTART_JSON', '/wsgi/static/quickstart.json')
+app.config['OO_INDEX_QUICKSTART_JSON'] = os.environ.get('OO_INDEX_QUICKSTART_JSON', 'wsgi/static/quickstart.json').strip('/')
 
 auth = AuthGitHub(app)
 
@@ -106,17 +106,11 @@ def add():
 
 	return render_template('add.html', pr=pr) #, **form_data)
 
-def _get_tree_element(repo, tree, *path):
+def _get_tree_element(repo, tree, path):
 	for el in tree.tree:
-		if el.type == 'tree':
-			if el.path == path[0]:
-				if len(path) == 1:
-					return el
-				return _get_tree_element(repo, repo.get_git_tree(el.sha), *path[1:])
-		elif el.type == 'blob':
-			if len(path) == 1 and el.path == path[0]:
-				return el
-	raise OOIndexError('Invalid path "%s". Please contact support' % '/'.join(path))
+		if el.path == path:
+			return el
+	raise OOIndexError('Invalid path "%s". Please contact support' % path)
 
 def _read_github_file(username, reponame, filename):
 	'''Fork repo and read content of `filename`.
@@ -148,8 +142,8 @@ def _read_github_file(username, reponame, filename):
 			raise OOIndexError(msg)
 
 	head = repo.get_commit('HEAD')
-	tree = repo.get_git_tree(head.sha)
-	blob = _get_tree_element(repo, tree, *filename.strip('/').split('/'))
+	tree = repo.get_git_tree(head.sha, recursive=True)
+	blob = _get_tree_element(repo, tree, filename)
 	content = requests.get(blob.url, headers={'Accept': 'application/vnd.github.v3.raw+json'}).json()
 
 	return repo, head, tree, content
@@ -220,16 +214,15 @@ def send_pull_request(form_data):
 	new_blob = repo.create_git_blob(json.dumps(quickstart, indent=3, encoding='utf-8'), 'utf-8')
 
 	# create tree with new blob
-	element = _get_tree_element(repo, tree, *q.strip('/').split('/'))
+	element = _get_tree_element(repo, tree, q)
 	element = PyGitHub.InputGitTreeElement(path=element.path, mode=element.mode, type=element.type, sha=new_blob.sha)
 
 	if not element:
 		flash("File not found: %s/%s/%s" % (u, r, q), "error")
 		return
 
-	base_tree = _get_tree_element(repo, tree, *q.strip('/').split('/')[:-1])
-	print "Creating tree...",; sys.stdout.flush()
-	new_tree = repo.create_git_tree([ element ], repo.get_git_tree(base_tree.sha))
+	print "Updating tree...",; sys.stdout.flush()
+	new_tree = repo.create_git_tree([ element ], tree.sha)
 
 	# create commit for new tree
 	print "Creating commit...",; sys.stdout.flush()
